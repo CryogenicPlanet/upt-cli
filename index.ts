@@ -15,38 +15,45 @@ program
 	.description("CLI to upload files to UploadThing")
 	.version("1.0.0");
 
-program.argument("<file>", "File to upload").action(async (file: string) => {
-	const full_path = path.resolve(file);
+program
+	.argument("<files...>", "File(s) to upload")
+	.action(async (files: string[]) => {
+		const tokenFile = Bun.file(tokenPath);
 
-	const tokenFile = Bun.file(tokenPath);
+		if (!(await tokenFile.exists())) {
+			console.error(
+				"No token found. Run `bunx upt-cli login <token>` to set your token.",
+			);
+			process.exit(1);
+		}
 
-	if (!(await tokenFile.exists())) {
-		console.error(
-			"No token found. Run `upcli login <token>` to set your token.",
+		const token = (await tokenFile.text()).trim();
+
+		const utapi = new UTApi({
+			apiKey: token,
+		});
+
+		const jsFiles = await Promise.all(
+			files.map(async (file) => {
+				const full_path = path.resolve(file);
+				const f = Bun.file(full_path);
+				const blob = new Blob([await f.arrayBuffer()], { type: f.type });
+				const jsFile = new File([blob], file, { type: f.type });
+				return jsFile;
+			}),
 		);
-		process.exit(1);
-	}
 
-	const token = (await tokenFile.text()).trim();
+		try {
+			const res = await utapi.uploadFiles(jsFiles);
 
-	const utapi = new UTApi({
-		apiKey: token,
+			console.log("Finished uploading files");
+			for (const file of res) {
+				console.log("File successfully uploaded. URL is here 👉", file.data?.url);
+			}
+		} catch (e) {
+			console.error("Failed to upload file(s):", e);
+		}
 	});
-
-	console.log(`Uploading ${file}`);
-	const f = Bun.file(full_path);
-
-	try {
-		const blob = new Blob([await f.arrayBuffer()], { type: f.type });
-		const jsFile = new File([blob], file, { type: f.type });
-
-		const res = await utapi.uploadFiles([jsFile]);
-
-		console.log("File successfully uploaded. URL is here 👉", res[0].data?.url);
-	} catch (e) {
-		console.error("Failed to upload file:", e);
-	}
-});
 
 program
 	.command("login <token>")
